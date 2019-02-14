@@ -1,4 +1,5 @@
-# camera-relocalization (braingarden.ai testcase)
+# camera-relocalization 
+_braingarden.ai testcase_
 
 
 Transfer learning of few CNN models for camera position regression.
@@ -45,4 +46,4 @@ Mostly similar to plain code example presented in the `2019-02-14-posnet.ipynb` 
 Difference is that in the notebook transferring of AlexNet and Inception presented, despite of the main.py code, where is 
 only Inception net in GoogleNet and PosNet realizations.
 
-Figures for slightly trained model are presented in the figs/ folder 
+Figures for slightly trained model are presented in the `figs/` folder 
