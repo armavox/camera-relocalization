@@ -39,10 +39,14 @@ Examples:
  
 ### Testing
 - To test model and watch Loss on the test set use option `--phase test`. Option `--resume` induces model to use the last checkpoint for this mode (GoogleNet of PoseNet)
+  ```
+  python main.py --model PoseNet --phase test --small-dataset --resume
+  ```
 
 ### Inference
 
-To infer camera position for custom image use options `--phase infer` and provide relative path to sample image `--sample-img-path`.
+- To infer camera position for custom image use options `--phase infer` and provide relative path to 
+sample image `--sample-img-path`.
 
   ```
   python main.py  --phase infer --sample-img-path sample.jpg
