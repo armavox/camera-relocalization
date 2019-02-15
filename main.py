@@ -98,8 +98,9 @@ def main():
         val_sampler = SubsetRandomSampler(val_inds)
         test_sampler = Subset(dataset, test_inds)
 
+        print(f'Batch size: {args.batch_size}')
         train_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler)
-        val_loader = DataLoader(dataset, batch_size=32, sampler=val_sampler)
+        val_loader = DataLoader(dataset, batch_size=args.batch_size*2, sampler=val_sampler)
         test_loader = DataLoader(test_sampler)
 
         # loss and optimizer
