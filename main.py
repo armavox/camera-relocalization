@@ -8,6 +8,7 @@ import torch.optim as opt
 
 from torch.utils.data import DataLoader, SubsetRandomSampler, Subset
 from torchvision import models, transforms
+from PIL import Image
 from model import PoseNet, GoogleNet, Loss
 from data import *
 import utils
@@ -18,6 +19,8 @@ import matplotlib.pyplot as plt
 parser = argparse.ArgumentParser(description='PyTorch cam location regresor')
 parser.add_argument('--model', type=str, default='PoseNet', 
                     choices=['GoogleNet', 'PoseNet'])
+parser.add_argument('--phase', type=str, default='train', 
+                    choices=['train', 'test', 'infer'])
 parser.add_argument('--epochs', '-e', metavar='NUM_EPOCHS', default=5,
                     type=int, help='number of epochs to train')
 parser.add_argument('--batch-size', '-b', metavar='BATCH_SIZE', default=16,
@@ -42,6 +45,8 @@ parser.add_argument('--no-cuda', action='store_true',
                     help='whether to disable GPU')
 parser.add_argument('--resume', action='store_true',
                     help='Resume to last checkpoint and continue training')
+parser.add_argument('--sample-img-path', metavar='IMG_PATH', default='',
+                    type=str, help='Path to image for inference')
 
 
 def main():
@@ -59,8 +64,10 @@ def main():
         model = PoseNet(inceptionV3)
     elif model_name == 'GoogleNet':
         model = GoogleNet(inceptionV3)
-    
-    utils.to_cuda(model, device)
+
+    phase = args.phase
+    if phase in ['train', 'test']:
+        utils.to_cuda(model, device)
 
     # Dataset
     transform = transforms.Compose([
@@ -79,6 +86,10 @@ def main():
         small_dataset = Subset(dataset, small_ds_inds)
         dataset = small_dataset
 
+    # normally it'll be better to generate and save random indices for every train session 
+    # to file and pull them out on the following test phase, but to not to clutter up repo
+    # we'll just state seed at this stage
+    np.random.seed(0)  # TODO: saving indices for test phase
     train_inds, val_inds, test_inds = train_val_holdout_split(dataset, ratios=[0.8,0.1,0.1])  # TODO: custom ratios
     train_sampler = SubsetRandomSampler(train_inds)
     val_sampler = SubsetRandomSampler(val_inds)
@@ -89,14 +100,14 @@ def main():
     test_loader = DataLoader(test_sampler)
 
     # loss and optimizer
-    loss_func = Loss(device, beta=750)
+    loss_func = Loss(device, beta=args.loss_beta)
 
     # checkpoints
     save_dir = args.save_dir
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    if args.resume:
+    if args.resume and phase in ['train', 'test']:
         chk_list = sorted([f for f in os.listdir(save_dir) if model_name in f])
         try:
             checkpoint_file = os.path.join(save_dir, chk_list[-1])
@@ -109,22 +120,25 @@ def main():
 
         print('Resume checkpoint:', chk_list[-1])
     print('*' * 60)
-    train_sum_loss, val_sum_loss = fit(model, args.epochs, loss_func,
-                                       train_loader, val_loader, device, save_dir)
+
+    if phase == 'train':
+        fit(model, args.epochs, loss_func, train_loader, val_loader, 
+            device, save_dir)
+    if phase =='test':
+        test_loss = test(model, loss_func, test_loader, device)
+        print(f"Test loss is: {test_loss:.4f}")
+    if phase == 'infer':
+        image_name = args.sample_img_path
+        if not image_name:
+            print('Provide sample image path for inference')
+            return
+        image = Image.open(image_name)
+        result = infer(image, model, model_name, transform, save_dir=save_dir)
+        return result
     
-    if args.plot_loss:
-        plt.figure(figsize=(12, 4))
-        plt.plot(range(len(train_sum_loss[1:])), train_sum_loss[1:], label='train')
-        plt.plot(range(len(val_sum_loss[1:])), val_sum_loss[1:], label='valid')
-        plt.title(f'{model_name} loss in {len(train_sum_loss[1:])} epochs')
-        plt.legend(loc='upper right')
-        now = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
-        plt.savefig(f'figs/{model_name}-{now}.png')
-
-
 def fit(net, epochs, loss_func, train_loader, val_loader, device, save_dir):
     start_time = time.time()
-    print(f'Start training {epochs} epochs:')
+    print(f'Start training {args.model} during {epochs} epochs:')
     if args.small_dataset:
         print('Training on small dataset')
     optim = opt.Adam(net.parameters(), lr=args.learning_rate)
@@ -181,7 +195,53 @@ def fit(net, epochs, loss_func, train_loader, val_loader, device, save_dir):
     minutes, seconds = divmod(rem, 60)
     print("Finished in {:0>2}:{:0>2}:{:05.2f}".format(int(hours),int(minutes),seconds))
 
+    if args.plot_loss:
+        plt.figure(figsize=(12, 4))
+        plt.plot(range(len(train_sum_loss[1:])), train_sum_loss[1:], label='train')
+        plt.plot(range(len(val_sum_loss[1:])), val_sum_loss[1:], label='valid')
+        plt.title(f'{model_name} loss in {len(train_sum_loss[1:])} epochs')
+        plt.legend(loc='upper right')
+        now = dt.now().strftime("%Y-%m-%d_%H-%M-%S")
+        plt.savefig(f'figs/{model_name}-{now}.png')
+
     return train_sum_loss, val_sum_loss
+
+
+def test(net, loss_func, test_loader, device):
+    net.eval()
+    with torch.no_grad():
+        test_loss = 0
+        for batch in test_loader:
+            img, coords = batch['image'].to(device), batch['coords'].to(device)
+            pos_pred, ori_pred = net(img)
+            pos_target, ori_target = coords[:, :3], coords[:, 3:] 
+            test_loss += loss_func(pos_pred, ori_pred, pos_target, ori_target)
+        test_loss /= len(test_loader)
+    return test_loss.item()
+
+
+def infer(image, net, model_name, transform, save_dir=None):
+    net.eval()
+    with torch.no_grad():
+        
+        if save_dir:
+            chk_list = sorted([f for f in os.listdir(save_dir) if model_name in f])
+            try:
+                checkpoint_file = os.path.join(save_dir, chk_list[-1])
+                checkpoint = torch.load(checkpoint_file)
+                net.load_state_dict(checkpoint['state_dict'])
+
+            except Exception:
+                print('WARNING. Using not ptrained model.')
+                
+
+        sample = transform(image).unsqueeze(0)
+        pos, orient = net(sample)
+        pos = pos.view(-1).detach().numpy() 
+        orient = orient.view(-1).detach().numpy()
+        # print(pos, orient)
+        print(f'POS_X:{pos[0]:.2f}, POS_Y:{pos[1]:.2f}, POS_Z:{pos[2]:.2f}, Q_W:{orient[0]:.2f}, Q_X{orient[1]:.2f}, Q_Y:{orient[2]:.2f}, Q_Z:{orient[3]:.2f}')
+    return 
 
 
 if __name__ == '__main__':
