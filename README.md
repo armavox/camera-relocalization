@@ -19,7 +19,10 @@ Full conda/pip environment stored in `brg_test_env.yml`. To install use `$conda 
 
 ### Data
 
-Put image folder and csv file into camera_relocalization_sample_dataset folder or specifiy both paths in the main.py options.
+Put image folder and csv file into camera_relocalization_sample_dataset folder or specifiy both paths in the main.py options. 
+Default values are: 
+  - for images folder 'camera_relocalization_sample_dataset/images/' 
+  - for csv file 'camera_relocalization_sample_dataset/info.csv'
 
 ### Training
 
