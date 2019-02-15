@@ -55,7 +55,7 @@ sample image `--sample-img-path`.
   python main.py  --phase infer --sample-img-path sample.jpg
   ```
 
-### Example
+### Jupyter notebook with Example
 
 Mostly similar to plain code example presented in the `2019-02-14-posnet.ipynb` Jupyter notebook. 
 Difference is that in the notebook transferring of AlexNet and Inception presented, despite of the main.py code, where is 
