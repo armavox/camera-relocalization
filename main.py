@@ -71,38 +71,41 @@ def main():
 
     # Dataset
     transform = transforms.Compose([
-        ConvertPILMode(mode='RGB'),
-        transforms.Resize((299, 299)),  # pretrained Inception net input is (3, 299, 299)
-        transforms.ToTensor()
-    ])
-    IMG_PATH = args.img_folder
-    CSV_PATH = args.csv_file
-    dataset = CameraDataset(CSV_PATH, IMG_PATH, transform=transform)
-    
-    ### SMALL DATASET FOR EXPERIMENTS ###
-    if args.small_dataset:
-        small_ds_inds = np.random.choice(range(len(dataset)), size=int(len(dataset)*0.1),
-                    replace=False)
-        small_dataset = Subset(dataset, small_ds_inds)
-        dataset = small_dataset
+            ConvertPILMode(mode='RGB'),
+            transforms.Resize((299, 299)),  # pretrained Inception net input is (3, 299, 299)
+            transforms.ToTensor()
+        ])
 
-    # normally it'll be better to generate and save random indices for every train session 
-    # to file and pull them out on the following test phase, but to not to clutter up repo
-    # we'll just state seed at this stage
-    np.random.seed(0)  # TODO: saving indices for test phase
-    train_inds, val_inds, test_inds = train_val_holdout_split(dataset, ratios=[0.8,0.1,0.1])  # TODO: custom ratios
-    train_sampler = SubsetRandomSampler(train_inds)
-    val_sampler = SubsetRandomSampler(val_inds)
-    test_sampler = Subset(dataset, test_inds)
+    if phase in ['train', 'test']:
+        
+        IMG_PATH = args.img_folder
+        CSV_PATH = args.csv_file
+        dataset = CameraDataset(CSV_PATH, IMG_PATH, transform=transform)
+        
+        ### SMALL DATASET FOR EXPERIMENTS ###
+        if args.small_dataset:
+            small_ds_inds = np.random.choice(range(len(dataset)), size=int(len(dataset)*0.1),
+                        replace=False)
+            small_dataset = Subset(dataset, small_ds_inds)
+            dataset = small_dataset
 
-    train_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler)
-    val_loader = DataLoader(dataset, batch_size=32, sampler=val_sampler)
-    test_loader = DataLoader(test_sampler)
+        # normally it'll be better to generate and save random indices for every train session 
+        # to file and pull them out on the following test phase, but to not to clutter up repo
+        # we'll just state seed at this stage
+        np.random.seed(0)  # TODO: saving indices for test phase
+        train_inds, val_inds, test_inds = train_val_holdout_split(dataset, ratios=[0.8,0.1,0.1])  # TODO: custom ratios
+        train_sampler = SubsetRandomSampler(train_inds)
+        val_sampler = SubsetRandomSampler(val_inds)
+        test_sampler = Subset(dataset, test_inds)
 
-    # loss and optimizer
-    loss_func = Loss(device, beta=args.loss_beta)
+        train_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler)
+        val_loader = DataLoader(dataset, batch_size=32, sampler=val_sampler)
+        test_loader = DataLoader(test_sampler)
 
-    # checkpoints
+        # loss and optimizer
+        loss_func = Loss(device, beta=args.loss_beta)
+
+    # Checkpoints
     save_dir = args.save_dir
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -121,13 +124,14 @@ def main():
         print('Resume checkpoint:', chk_list[-1])
     print('*' * 60)
 
+    # Training, testing or inferring
     if phase == 'train':
         fit(model, args.epochs, loss_func, train_loader, val_loader, 
             device, save_dir)
-    if phase =='test':
+    elif phase =='test':
         test_loss = test(model, loss_func, test_loader, device)
         print(f"Test loss is: {test_loss:.4f}")
-    if phase == 'infer':
+    elif phase == 'infer':
         image_name = args.sample_img_path
         if not image_name:
             print('Provide sample image path for inference')
@@ -135,7 +139,11 @@ def main():
         image = Image.open(image_name)
         result = infer(image, model, model_name, transform, save_dir=save_dir)
         return result
-    
+    else:
+        raise KeyError('Unimplemented phase or wrong phase name')
+        return
+
+
 def fit(net, epochs, loss_func, train_loader, val_loader, device, save_dir):
     start_time = time.time()
     print(f'Start training {args.model} during {epochs} epochs:')
@@ -232,16 +240,14 @@ def infer(image, net, model_name, transform, save_dir=None):
                 net.load_state_dict(checkpoint['state_dict'])
 
             except Exception:
-                print('WARNING. Using not ptrained model.')
+                print('WARNING. Using not pretrained model.')
                 
-
         sample = transform(image).unsqueeze(0)
         pos, orient = net(sample)
         pos = pos.view(-1).detach().numpy() 
         orient = orient.view(-1).detach().numpy()
-        # print(pos, orient)
         print(f'POS_X:{pos[0]:.2f}, POS_Y:{pos[1]:.2f}, POS_Z:{pos[2]:.2f}, Q_W:{orient[0]:.2f}, Q_X{orient[1]:.2f}, Q_Y:{orient[2]:.2f}, Q_Z:{orient[3]:.2f}')
-    return 
+    return pos, orient
 
 
 if __name__ == '__main__':
